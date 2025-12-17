@@ -430,6 +430,42 @@ function normalize_node(nodes::G) where {G<:Nodes} # Internal function, not expo
 end
 
 """
+In-place version that computes the Chebyshev polynomial of degree ```order``` at the scalar point ```x```,
+storing the result in the pre-allocated array ```poly```. The point ```x``` must lie in [1.0,-1.0].
+Returns the filled ```poly``` array.
+
+Signature
+=========
+
+chebyshev_polynomial!(poly, order, x)
+
+Example
+=======
+```
+julia> poly = Array{Float64}(undef, 1, 4)
+julia> chebyshev_polynomial!(poly, 3, 0.6)
+[1.0  0.6  -0.28  -0.936]
+```
+"""
+function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::R) where {S<:Integer,R<:Real}
+
+  # x must reside in [-1,1]
+
+  poly[1] = one(R)
+
+  @inbounds for i = 2:order+1
+    if i == 2
+      poly[i] = x
+    else
+      poly[i] = 2*x*poly[i-1] - poly[i-2]
+    end
+  end
+
+  return poly
+
+end
+
+"""
 Computes the Chebyshev polynomial of degree ```order``` at the scalar point ```x```, which must lie in [1.0,-1.0].
 Returns a 2d array.  The element-type of the polynomial is given by the element-type of ```x```.
 
@@ -450,13 +486,41 @@ function chebyshev_polynomial(order::S, x::R) where {S<:Integer,R<:Real}
   # x must reside in [-1,1]
 
   poly = Array{R}(undef, 1, order + 1)
-  poly[1] = one(R)
+  return chebyshev_polynomial!(poly, order, x)
+
+end
+
+"""
+In-place version that computes the Chebyshev polynomial of degree ```order``` at each point in the vector ```x```,
+storing the result in the pre-allocated array ```poly```. The elements of ```x``` must lie in [1.0,-1.0].
+Returns the filled ```poly``` array.
+
+Signature
+=========
+
+chebyshev_polynomial!(poly, order, x)
+
+Example
+=======
+```
+julia> poly = Array{Float64}(undef, 2, 4)
+julia> chebyshev_polynomial!(poly, 3, [0.6,0.4])
+[1.0  0.6  -0.28  -0.936
+ 1.0  0.4  -0.68  -0.944]
+```
+"""
+function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::AbstractArray{R,1}) where {S<:Integer,R<:Real}
+
+  # Elements of x must reside in [-1,1]
+  poly[:, 1] .= one(R)
 
   @inbounds for i = 2:order+1
-    if i == 2
-      poly[i] = x
-    else
-      poly[i] = 2*x*poly[i-1] - poly[i-2]
+    for j in eachindex(x)
+      if i == 2
+          poly[j, i] = x[j]
+      else
+        poly[j, i] = 2*x[j]*poly[j,i-1] - poly[j,i-2]
+      end
     end
   end
 
@@ -486,15 +550,41 @@ function chebyshev_polynomial(order::S, x::AbstractArray{R,1}) where {S<:Integer
 
   # Elements of x must reside in [-1,1]
   poly = Array{R}(undef, length(x), order + 1)
-  poly[:, 1] .= one(R)
+  return chebyshev_polynomial!(poly, order, x)
+
+end
+
+"""
+In-place version that computes the Chebyshev polynomial of degree ```order``` at the scalar point ```x```,
+which must lie in ```dom```, storing the result in the pre-allocated array ```poly```.
+Returns the filled ```poly``` array.
+
+Signature
+=========
+
+chebyshev_polynomial!(poly, order, x, dom)
+
+Example
+=======
+```
+julia> poly = Array{Float64}(undef, 1, 4)
+julia> chebyshev_polynomial!(poly, 3, 0.6, [1.0,-1.0])
+[1.0  0.6  -0.28  -0.936]
+```
+"""
+function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::R, dom::AbstractArray{T,1}) where {S<:Integer,R<:Number,T<:Real}
+
+  # x must reside in [-1,1]
+
+  point = normalize_node(x,dom)
+
+  poly[1] = one(R)
 
   @inbounds for i = 2:order+1
-    for j in eachindex(x)
-      if i == 2
-          poly[j, i] = x[j]
-      else
-        poly[j, i] = 2*x[j]*poly[j,i-1] - poly[j,i-2]
-      end
+    if i == 2
+      poly[i] = point
+    else
+      poly[i] = 2*point*poly[i-1] - poly[i-2]
     end
   end
 
@@ -520,18 +610,43 @@ julia> P = chebyshev_polynomial(3,0.6,[1.0,-1.0])
 """
 function chebyshev_polynomial(order::S, x::R, dom::AbstractArray{T,1}) where {S<:Integer,R<:Number,T<:Real}
 
-  # x must reside in [-1,1]
-
-  point = normalize_node(x,dom)
-
   poly = Array{R}(undef, 1, order + 1)
-  poly[1] = one(R)
+  return chebyshev_polynomial!(poly, order, x, dom)
+
+end
+
+"""
+In-place version that computes the Chebyshev polynomial of degree ```order``` at each point in the vector ```x```.
+The elements of ```x``` must lie in ```dom```. Stores the result in the pre-allocated array ```poly```.
+Returns the filled ```poly``` array.
+
+Signature
+=========
+
+chebyshev_polynomial!(poly, order, x, dom)
+
+Example
+=======
+```
+julia> poly = Array{Float64}(undef, 2, 4)
+julia> chebyshev_polynomial!(poly, 3, [0.6,0.4], [1.0,-1.0])
+[1.0  0.6  -0.28  -0.936
+ 1.0  0.4  -0.68  -0.944]
+```
+"""
+function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::AbstractArray{R,1}, dom::AbstractArray{T,1}) where {S<:Integer,R<:Number,T<:Real}
+
+  points = normalize_node(x,dom)
+  # Elements of x must reside in [-1,1]
+  poly[:, 1] .= one(R)
 
   @inbounds for i = 2:order+1
-    if i == 2
-      poly[i] = point
-    else
-      poly[i] = 2*point*poly[i-1] - poly[i-2]
+    for j in eachindex(x)
+      if i == 2
+          poly[j, i] = points[j]
+      else
+        poly[j, i] = 2*points[j]*poly[j,i-1] - poly[j,i-2]
+      end
     end
   end
 
@@ -559,17 +674,42 @@ julia> P = chebyshev_polynomial(3,[0.6,0.4],[1.0,-1.0])
 """
 function chebyshev_polynomial(order::S, x::AbstractArray{R,1}, dom::AbstractArray{T,1}) where {S<:Integer,R<:Number,T<:Real}
 
-  points = normalize_node(x,dom)
-  # Elements of x must reside in [-1,1]
   poly = Array{R}(undef, length(x), order + 1)
-  poly[:, 1] .= one(R)
+  return chebyshev_polynomial!(poly, order, x, dom)
+
+end
+
+"""
+In-place version that computes the Chebyshev polynomial of degree ```order``` at each point specified in the
+```nodes``` struct, storing the result in the pre-allocated array ```poly```. The elements of ```nodes.points```
+must lie in [1.0,-1.0]. Returns the filled ```poly``` array.
+
+Signature
+=========
+
+chebyshev_polynomial!(poly, order, nodes)
+
+Example
+=======
+```
+julia> n = nodes(2,:chebyshev_nodes)
+ChebRoots{Float64, Float64}([-0.7071067811865476, 0.7071067811865476], [1.0, -1.0])
+
+julia> poly = Array{Float64}(undef, 2, 4)
+julia> chebyshev_polynomial!(poly, 3, n)
+[1.0 -0.7071067811865476 2.220446049250313e-16 0.7071067811865472; 1.0 0.7071067811865475 -2.220446049250313e-16 -0.7071067811865478]
+```
+"""
+function chebyshev_polynomial!(poly::AbstractArray{T,2}, order::S, nodes::G) where {S<:Integer,G<:Nodes,T<:Real}
+
+  poly[:, 1] .= one(T)
 
   @inbounds for i = 2:order+1
-    for j in eachindex(x)
+    for j in eachindex(nodes.points)
       if i == 2
-          poly[j, i] = points[j]
+        poly[j, i] = normalize_node(nodes.points[j],nodes.domain)
       else
-        poly[j, i] = 2*points[j]*poly[j,i-1] - poly[j,i-2]
+        poly[j, i] = 2*normalize_node(nodes.points[j],nodes.domain)*poly[j,i-1] - poly[j,i-2]
       end
     end
   end
@@ -603,17 +743,7 @@ function chebyshev_polynomial(order::S, nodes::G) where {S<:Integer,G<:Nodes}
   T = eltype(nodes.points)
 
   poly = Array{T}(undef, length(nodes.points), order + 1)
-  poly[:, 1] .= one(T)
-
-  @inbounds for i = 2:order+1
-    for j in eachindex(nodes.points)
-      if i == 2
-        poly[j, i] = normalize_node(nodes.points[j],nodes.domain)
-      else
-        poly[j, i] = 2*normalize_node(nodes.points[j],nodes.domain)*poly[j,i-1] - poly[j,i-2]
-      end
-    end
-  end
+  chebyshev_polynomial!(poly, order, nodes)
 
   return ChebPoly(poly, G)
 
