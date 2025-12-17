@@ -407,7 +407,7 @@ function normalize_node(node::R, domain::AbstractArray{T,1}) where {R<:Number,T<
     norm_node = zero(T)
     return norm_node
   else
-    norm_node = 2*(node - domain[2])/(domain[1] - domain[2]) - 1.0
+    norm_node = muladd(2, (node - domain[2])/(domain[1] - domain[2]), -one(R))
     return norm_node
   end
 
@@ -457,7 +457,7 @@ function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::R) where {
     if i == 2
       poly[i] = x
     else
-      poly[i] = 2*x*poly[i-1] - poly[i-2]
+      poly[i] = muladd(2*x, poly[i-1], -poly[i-2])
     end
   end
 
@@ -519,7 +519,7 @@ function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::AbstractAr
       if i == 2
           poly[j, i] = x[j]
       else
-        poly[j, i] = 2*x[j]*poly[j,i-1] - poly[j,i-2]
+        poly[j, i] = muladd(2*x[j], poly[j,i-1], -poly[j,i-2])
       end
     end
   end
@@ -584,7 +584,7 @@ function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::R, dom::Ab
     if i == 2
       poly[i] = point
     else
-      poly[i] = 2*point*poly[i-1] - poly[i-2]
+      poly[i] = muladd(2*point, poly[i-1], -poly[i-2])
     end
   end
 
@@ -645,7 +645,7 @@ function chebyshev_polynomial!(poly::AbstractArray{R,2}, order::S, x::AbstractAr
       if i == 2
           poly[j, i] = points[j]
       else
-        poly[j, i] = 2*points[j]*poly[j,i-1] - poly[j,i-2]
+        poly[j, i] = muladd(2*points[j], poly[j,i-1], -poly[j,i-2])
       end
     end
   end
@@ -709,7 +709,7 @@ function chebyshev_polynomial!(poly::AbstractArray{T,2}, order::S, nodes::G) whe
       if i == 2
         poly[j, i] = normalize_node(nodes.points[j],nodes.domain)
       else
-        poly[j, i] = 2*normalize_node(nodes.points[j],nodes.domain)*poly[j,i-1] - poly[j,i-2]
+        poly[j, i] = muladd(2*normalize_node(nodes.points[j],nodes.domain), poly[j,i-1], -poly[j,i-2])
       end
     end
   end
@@ -766,8 +766,25 @@ julia> P = chebyshev_polynomial_deriv(3,0.6)
 ```
 """
 function chebyshev_polynomial_deriv(order::S, x::R) where {S<:Integer,R<:Real}
-
+  # allocate and delegate to in-place implementation
   poly_deriv = Array{R}(undef, 1, order + 1)
+  return chebyshev_polynomial_deriv!(poly_deriv, order, x)
+
+end
+
+"""
+In-place version that computes the first derivative of the Chebyshev polynomial of `order` at the scalar `x`,
+storing the result in the pre-allocated array `poly_deriv`.
+
+Signature
+=========
+
+`chebyshev_polynomial_deriv!(poly_deriv, order, x)`
+
+Returns the filled `poly_deriv`.
+"""
+function chebyshev_polynomial_deriv!(poly_deriv::AbstractArray{R,2}, order::S, x::R) where {S<:Integer,R<:Real}
+
   poly_deriv[1] = zero(R)
 
   p   = one(R)
@@ -780,8 +797,8 @@ function chebyshev_polynomial_deriv(order::S, x::R) where {S<:Integer,R<:Real}
       poly_deriv[i] = one(R)
     else
       pll, pl = pl, p
-      p = 2*x*pl - pll
-      poly_deriv[i] = 2*pl + 2*x*poly_deriv[i-1] - poly_deriv[i-2]
+      p = muladd(2*x, pl, -pll)
+      poly_deriv[i] = muladd(2, pl, muladd(2*x, poly_deriv[i-1], -poly_deriv[i-2]))
     end
   end
 
@@ -808,8 +825,22 @@ julia> P = chebyshev_polynomial_deriv(3,[0.6,0.4])
 ```
 """
 function chebyshev_polynomial_deriv(order::S, x::AbstractArray{R,1}) where {S<:Integer,R<:Real}
-
   poly_deriv = Array{R}(undef, length(x), order + 1)
+  return chebyshev_polynomial_deriv!(poly_deriv, order, x)
+
+end
+
+"""
+In-place version that computes the first derivative of the Chebyshev polynomial of `order` at each point in
+the vector `x`, storing the result in the pre-allocated array `poly_deriv`.
+
+Signature
+=========
+
+`chebyshev_polynomial_deriv!(poly_deriv, order, x)`
+"""
+function chebyshev_polynomial_deriv!(poly_deriv::AbstractArray{R,2}, order::S, x::AbstractArray{R,1}) where {S<:Integer,R<:Real}
+
   poly_deriv[:, 1] .= zero(R)
 
   @inbounds for j in eachindex(x)
@@ -822,8 +853,8 @@ function chebyshev_polynomial_deriv(order::S, x::AbstractArray{R,1}) where {S<:I
         poly_deriv[j,i] = one(R)
       else
         pll, pl = pl, p
-        p = 2*x[j]*pl - pll
-        poly_deriv[j,i] = 2*pl + 2*x[j]*poly_deriv[j,i-1] - poly_deriv[j,i-2]
+        p = muladd(2*x[j], pl, -pll)
+        poly_deriv[j,i] = muladd(2, pl, muladd(2*x[j], poly_deriv[j,i-1], -poly_deriv[j,i-2]))
       end
     end
   end
@@ -853,10 +884,24 @@ ChebPoly{Float64}([0.0 1.0 -2.8284271247461903 3.0000000000000018; 0.0 1.0 2.828
 ```
 """
 function chebyshev_polynomial_deriv(order::S, nodes::G) where {S<:Integer,G<:Nodes}
-
   T = eltype(nodes.points)
 
   poly_deriv = Array{T}(undef,length(nodes.points), order + 1)
+  return chebyshev_polynomial_deriv!(poly_deriv, order, nodes)
+
+end
+
+"""
+In-place version that computes the first derivative of the Chebyshev polynomial of `order` at each point
+specified in the `nodes` struct, storing the result in the pre-allocated array `poly_deriv`.
+
+Signature
+=========
+
+`chebyshev_polynomial_deriv!(poly_deriv, order, nodes)`
+"""
+function chebyshev_polynomial_deriv!(poly_deriv::AbstractArray{T,2}, order::S, nodes::G) where {S<:Integer,G<:Nodes,T<:Real}
+
   poly_deriv[:,1] .= zero(T)
 
   @inbounds for j in eachindex(nodes.points)
@@ -869,13 +914,14 @@ function chebyshev_polynomial_deriv(order::S, nodes::G) where {S<:Integer,G<:Nod
         poly_deriv[j,i] = one(T)
       else
         pll, pl = pl, p
-        p = 2*normalize_node(nodes.points[j],nodes.domain)*pl - pll
-        poly_deriv[j,i] = 2*pl + 2*normalize_node(nodes.points[j],nodes.domain)*poly_deriv[j,i-1] - poly_deriv[j,i-2]
+        local xi = normalize_node(nodes.points[j],nodes.domain)
+        p = muladd(2*xi, pl, -pll)
+        poly_deriv[j,i] = muladd(2, pl, muladd(2*xi, poly_deriv[j,i-1], -poly_deriv[j,i-2]))
       end
     end
   end
 
-  return ChebPoly(poly_deriv, G)
+  return poly_deriv
 
 end
 
@@ -914,10 +960,10 @@ function chebyshev_polynomial_sec_deriv(order::S, x::T) where {T<:Real,S<:Intege
       poly_sec_deriv[i] = zero(T)
     else
       pll, pl = pl, p
-      p = 2*x*pl - pll
+      p = muladd(2*x, pl, -pll)
       pdll, pdl = pdl, pd
-      pd = 2*pl + 2*x*pdl - pdll
-      poly_sec_deriv[i] = 2*x*poly_sec_deriv[i-1] + 4*pdl - poly_sec_deriv[i-2]
+      pd = muladd(2, pl, muladd(2*x, pdl, -pdll))
+      poly_sec_deriv[i] = muladd(2*x, poly_sec_deriv[i-1], muladd(4, pdl, -poly_sec_deriv[i-2]))
     end
   end
 
@@ -962,10 +1008,10 @@ function chebyshev_polynomial_sec_deriv(order::S, x::AbstractArray{T,1}) where {
         poly_sec_deriv[j,i] = zero(T)
       else
         pll, pl = pl, p
-        p = 2*x[j]*pl - pll
+        p = muladd(2*x[j], pl, -pll)
         pdll, pdl = pdl, pd
-        pd = 2*pl + 2*x[j]*pdl - pdll
-        poly_sec_deriv[j,i] = 2*x[j]*poly_sec_deriv[j,i-1] + 4*pdl - poly_sec_deriv[j,i-2]
+        pd = muladd(2, pl, muladd(2*x[j], pdl, -pdll))
+        poly_sec_deriv[j,i] = muladd(2*x[j], poly_sec_deriv[j,i-1], muladd(4, pdl, -poly_sec_deriv[j,i-2]))
       end
     end
   end
@@ -1015,10 +1061,11 @@ function chebyshev_polynomial_sec_deriv(order::S,nodes::G) where {G<:Nodes,S<:In
         poly_sec_deriv[j,i] = zero(T)
       else
         pll, pl = pl, p
-        p = 2*normalize_node(nodes.points[j],nodes.domain)*pl - pll
+        xi = normalize_node(nodes.points[j],nodes.domain)
+        p = muladd(2*xi, pl, -pll)
         pdll, pdl = pdl, pd
-        pd = 2 * pl + 2 * normalize_node(nodes.points[j], nodes.domain) * pdl - pdll
-        poly_sec_deriv[j,i] = 2*normalize_node(nodes.points[j],nodes.domain)*poly_sec_deriv[j,i-1] + 4*pdl - poly_sec_deriv[j,i-2]
+        pd = muladd(2, pl, muladd(2*xi, pdl, -pdll))
+        poly_sec_deriv[j,i] = muladd(2*xi, poly_sec_deriv[j,i-1], muladd(4, pdl, -poly_sec_deriv[j,i-2]))
       end
     end
   end
@@ -3315,6 +3362,59 @@ end
 # Functions for derivatives
 
 """
+In-place version that computes the first derivative of a tensor-product Chebyshev polynomial with respect to the
+variable in position ```pos```, at point ```x```, given the ```weights```, the polynomial ```order```, and the
+```domain```. Uses the pre-allocated array ```poly``` to avoid allocations. Returns the derivative value.
+
+Signature
+=========
+
+d = chebyshev_derivative!(poly, weights, x, pos, order, domain)
+
+Example
+=======
+```
+julia> weights = [1.66416      0.598458    -0.0237052     0.00272941
+  0.26378      0.0948592   -0.00375743    0.000432628
+ -0.0246176   -0.00885287   0.000350667  -4.03756e-5
+  0.00372291   0.00133882  -5.30312e-5    6.10598e-6]
+julia> x = [5.5,0.9]
+julia> ord = (3,3)
+julia> dom = [9.0 1.5; 3.0 0.5]
+julia> pos = 1
+julia> poly = [Array{Float64}(undef, 1, ord[i] + 1) for i in 1:2]
+julia> d = chebyshev_derivative!(poly, weights, x, pos, ord, dom)
+0.08487312307427555
+```
+"""
+function chebyshev_derivative!(poly::AbstractVector{<:AbstractArray{R,2}}, weights::AbstractArray{T,N}, x::AbstractArray{R,1}, pos::S, order::Union{NTuple{N,S},AbstractArray{S,1}}, domain=[ones(R, 1, N); -ones(R, 1, N)]) where {T<:Real,R<:Real,N,S<:Integer}
+
+  if length(x) != N
+    error("A value for 'x' is needed for each spacial dimension.")
+  end
+
+  @inbounds for i = 1:N
+    if i === pos
+      chebyshev_polynomial_deriv!(poly[i], order[i], normalize_node(x[i], domain[:, i]))
+    else
+      chebyshev_polynomial!(poly[i], order[i], normalize_node(x[i], domain[:, i]))
+    end
+  end
+
+  derivative = zero(R)
+  @inbounds for i in CartesianIndices(weights)
+    poly_product = poly[1][i[1]]
+    @inbounds for j = 2:N
+      poly_product *= poly[j][i[j]]
+    end
+    derivative += weights[i] * poly_product
+  end
+
+  return derivative * (2.0 / (domain[1, pos] - domain[2, pos]))
+
+end
+
+"""
 Computes the first derivative of a tensor-product Chebyshev polynomial with respect to the variable in position ```pos```, at point ```x```, given the ```weights```, the polynomial ```order```, and the ```domain```.
 
 Signature
@@ -3343,22 +3443,60 @@ function chebyshev_derivative(weights::AbstractArray{T,N}, x::AbstractArray{R,1}
     error("A value for 'x' is needed for each spacial dimension.")
   end
 
-  poly = Array{Array{R,2},1}(undef, N)
+  poly = [Array{R}(undef, 1, order[i] + 1) for i = 1:N]
+  return chebyshev_derivative!(poly, weights, x, pos, order, domain)
+
+end
+
+"""
+In-place version that computes the first derivative of a complete Chebyshev polynomial with respect to the variable
+in position ```pos```, at point ```x```, given the ```weights```, the polynomial ```order```, and the ```domain```.
+Uses the pre-allocated array ```poly``` to avoid allocations. Returns the derivative value.
+
+Signature
+=========
+
+d = chebyshev_derivative!(poly, weights, x, pos, order, domain)
+
+Example
+=======
+```
+julia> weights = [1.66416      0.598458    -0.0237052   0.00272941
+  0.26378      0.0948592   -0.00375743  0.0
+ -0.0246176   -0.00885287   0.0         0.0
+  0.00372291   0.0          0.0         0.0]
+julia> x = [5.5,0.9]
+julia> ord = 3
+julia> dom = [9.0 1.5; 3.0 0.5]
+julia> pos = 1
+julia> poly = [Array{Float64}(undef, 1, ord + 1) for i in 1:2]
+julia> d = chebyshev_derivative!(poly, weights, x, pos, ord, dom)
+0.08452286208888889
+```
+"""
+function chebyshev_derivative!(poly::AbstractVector{<:AbstractArray{R,2}}, weights::AbstractArray{T,N}, x::AbstractArray{R,1}, pos::S, order::S, domain=[ones(R, 1, N); -ones(R, 1, N)]) where {T<:Real,R<:Real,N,S<:Integer}
+
+  if length(x) != N
+    error("A value for 'x' is needed for each spacial dimension.")
+  end
+
   @inbounds for i = 1:N
     if i === pos
-      poly[i] = chebyshev_polynomial_deriv(order[i], normalize_node(x[i], domain[:, i]))
+      chebyshev_polynomial_deriv!(poly[i], order, normalize_node(x[i], domain[:, i]))
     else
-      poly[i] = chebyshev_polynomial(order[i], normalize_node(x[i], domain[:, i]))
+      chebyshev_polynomial!(poly[i], order, normalize_node(x[i], domain[:, i]))
     end
   end
 
   derivative = zero(R)
   @inbounds for i in CartesianIndices(weights)
-    poly_product = poly[1][i[1]]
-    @inbounds for j = 2:N
-      poly_product *= poly[j][i[j]]
+    if sum(i.I) <= order + N
+      poly_product = poly[1][i[1]]
+      @inbounds for j = 2:N
+        poly_product *= poly[j][i[j]]
+      end
+      derivative += weights[i] * poly_product
     end
-    derivative += weights[i] * poly_product
   end
 
   return derivative * (2.0 / (domain[1, pos] - domain[2, pos]))
@@ -3394,27 +3532,8 @@ function chebyshev_derivative(weights::AbstractArray{T,N}, x::AbstractArray{R,1}
     error("A value for 'x' is needed for each spacial dimension.")
   end
 
-  poly = Array{Array{R,2},1}(undef, N)
-  @inbounds for i = 1:N
-    if i === pos
-      poly[i] = chebyshev_polynomial_deriv(order, normalize_node(x[i], domain[:, i]))
-    else
-      poly[i] = chebyshev_polynomial(order, normalize_node(x[i], domain[:, i]))
-    end
-  end
-
-  derivative = zero(R)
-  @inbounds for i in CartesianIndices(weights)
-    if sum(i.I) <= order + N
-      poly_product = poly[1][i[1]]
-      @inbounds for j = 2:N
-        poly_product *= poly[j][i[j]]
-      end
-      derivative += weights[i] * poly_product
-    end
-  end
-
-  return derivative * (2.0 / (domain[1, pos] - domain[2, pos]))
+  poly = [Array{R}(undef, 1, order + 1) for i = 1:N]
+  return chebyshev_derivative!(poly, weights, x, pos, order, domain)
 
 end
 
